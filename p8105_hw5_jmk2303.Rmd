@@ -47,9 +47,170 @@ scale_fill_discrete   = scale_fill_viridis_d
 Problem 1
 ------------------------------------------------------------------------------->
 
+# Problem 1
 
+We begin by pulling and tidying data on homicides in 50 of the largest US cities, courtesy of The Washington Post.
 
+```{r}
+# identify the proper url for the data
+path <- "https://raw.githubusercontent.com/washingtonpost/data-homicides/master/homicide-data.csv"
 
+# pull and tidy data
+homicides <-
+  # read in data and rename a few anomalous missing values
+  read_csv(path, na = c("", "Unknown")) %>%
+  # create variables useful for analysis
+  mutate(
+    # concatenate city and state into a single string variable 
+      city_state = paste0(city, ", ", state)
+    # create a binary factor variable that indicates if a case was solved
+    , resolution = factor(case_when(
+        disposition == "Closed by arrest"      ~ "Solved"
+      , disposition == "Closed without arrest" ~ "Unsolved"
+      , disposition == "Open/No arrest"        ~ "Unsolved"
+    ))
+  ) %>%
+  # remove a row that seems to have an error
+  filter(city_state != "Tulsa, AL") %>%
+  # relocate city_state to be the first column of our data frame
+  relocate(city_state)
+
+# output raw data as table
+head(homicides, 10) %>% knitr::kable()
+```
+
+Upon filtering out a single row with a data entry issue, the dataset consists of `r nrow(homicides)` observations and `r ncol(homicides)` variables, two of which - `city_state` and `resolution` - we added for convenience. Each row of the dataset corresponds to a homicide case reported between `r homicides %>% pull(reported_date) %>% substr(1, 4) %>% as.numeric() %>% unique() %>% min()` and `r homicides %>% pull(reported_date) %>% substr(1, 4) %>% as.numeric() %>% unique() %>% max()` and includes record of the victim's name, race/ethnicity, age, and sex. We also have data on the location of the crime down to the latitude and longitude, as well as whether the crime was ever solved. Across all observations, about `r round(100 * (homicides %>% filter(resolution == "Unsolved") %>% nrow()) / nrow(homicides), 1)`\% of all homicides were never solved. We aim to understand the distribution of resolution rates across cities. To that end, we provide a table of the number of unsolved homicides and the total number of hommicides for each city.
+
+```{r}
+# create table of counts and rates of unsolved homicides by city
+homicides %>%
+  # group by city
+  group_by(city_state) %>%
+  # summarize data to obtain counts of unsolved homicides and total homicides
+  summarize(
+      unsolved = sum(resolution == "Unsolved")
+    , total    = n()
+  ) %>%
+  # compute rate of unsolved homicide
+  mutate(rate = 100 * unsolved / total) %>%
+  # output as readable table
+  knitr::kable(
+      caption     = "**Count and Rate of Unsolved Homicides, by City**"
+    , col.names   = c("City", "Unsolved", "Total", "Rate (in %)")
+    , format.args = list(big.mark = ",")
+    , d           = 1
+  )
+```
+
+Let's first consider Baltimore, MD in isolation before we generalize our code to the broader dataset. We want to construct a point estimate and confidence interval for the true proportion of homicides that went unsolved.
+
+```{r}
+# create a summary row
+baltimoreSummary <-
+  # select data
+  homicides %>%
+  # restrict to Baltimore
+  filter(city_state == "Baltimore, MD") %>%
+  # summarize data to obtain counts of unsolved homicides and total homicides
+  summarize(
+      unsolved = sum(resolution == "Unsolved")
+    , total    = n()
+  )
+
+# apply summary data to test of proportions and extract relevant output
+baltimoreTest <-
+  # conduct test of proportions
+  prop.test(
+    x = pull(baltimoreSummary, unsolved)
+  , n = pull(baltimoreSummary, total)
+  ) %>%
+  # tidy test output
+  broom::tidy() %>%
+  # extract relevant output
+  select(estimate, conf.low, conf.high)
+
+# output findings as table
+baltimoreTest %>% knitr::kable()
+```
+
+We find that in Baltimore between the years 2007 and 2017, the proportion of homicides that went unsolved was about `r round(100 * pull(baltimoreTest, estimate), 1)`\%, and the 95% confidence interval around this point estimate was about [`r round(100 * pull(baltimoreTest, conf.low), 1)`\%, `r round(100 * pull(baltimoreTest, conf.high), 1)`\%]. As we have obtained the desired output, we are now prepared to construct a function that can generalize this procedure.
+
+```{r}
+# construct a function to obtain point estimates and confidence intervals
+propTestFun <- function(cityData) {
+
+  # create a summary row
+  citySummary <-
+    # select data
+    cityData %>%
+    # summarize data to obtain counts of unsolved homicides and total homicides
+    summarize(
+        unsolved = sum(resolution == "Unsolved")
+      , total    = n()
+    )
+
+  # apply summary data to test of proportions and extract relevant output
+  cityTest <-
+    # conduct test of proportions
+    prop.test(
+      x = pull(citySummary, unsolved)
+    , n = pull(citySummary, total)
+    ) %>%
+    # tidy test output
+    broom::tidy() %>%
+    # extract relevant output
+    select(estimate, conf.low, conf.high)
+
+  # output findings
+  cityTest
+
+}
+
+# apply function to nested dataset and un-nest results
+cityHomicidesResults <-
+  # select original dataset
+  homicides %>%
+  # nest dataset at the city level
+  nest(data = uid:resolution) %>%
+  # apply function to each nested city data frame
+  mutate(results = map(data, propTestFun)) %>%
+  # select relevant features
+  select(city_state, results) %>%
+  # un-nest results
+  unnest(cols = results)
+
+# output results as table
+head(cityHomicidesResults, 10) %>% knitr::kable()
+```
+
+Using this data frame of results, we can now better visualize the distribution of proportions, sorted according to the point estimate of the proportion of unsolved homicides.
+
+```{r, fig.asp = 1.2}
+# create error bar chart of rate of unsolved homicide by city
+cityHomicidesResults %>%
+  # reorder cities according to point estimate of proportion
+  mutate(city_state = fct_reorder(city_state, estimate)) %>%
+  # instantiate plot
+  ggplot(aes(x = city_state, y = estimate)) +
+  # add point estimates
+  geom_point() +
+  # add confidence intervals
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  # flip axes for readability
+  coord_flip() +
+  # add meta-data
+  labs(
+    title = "Proportion of Unsolved Homicides, by City"
+    , x = "Proportion"
+    , y = ""
+    , caption  = paste0(
+          "Note: Confidence intervals computed at the 95% cinfidence level."
+        , "\nSource: The Washington Post."
+    )
+  )
+```
+
+Richmond, VA has the lowest rate of unsolved homicides among these 50 cities. Chicago, IL sits at the other extreme of this distribution. In fact, as its confidence interval does not overlap with that of any other city, it would appear to be an outlier in this sense.
 
 <!------------------------------------------------------------------------------
 Problem 2
@@ -146,9 +307,12 @@ replaceMissing <- function(v) {
 # apply function to each column of edited dataset to fill in missing values
 irisCorrected <- map_df(irisMissing, replaceMissing)
 
-# output edited dataset
-tail(irisMissing, 10) %>% knitr::kable()
+# identify missing rows in edited dataset
+missingRows <- sort(unique(unlist(map(irisMissing, ~which(is.na(.x))))))
 
-# output corrected dataset
-tail(irisCorrected, 10) %>% knitr::kable()
+# output a few rows of interest in edited dataset
+head(  irisMissing[missingRows, ], 10) %>% knitr::kable()
+
+# output a few rows of interest in corrected dataset
+head(irisCorrected[missingRows, ], 10) %>% knitr::kable()
 ```
