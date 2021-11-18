@@ -55,6 +55,8 @@ Problem 1
 Problem 2
 ------------------------------------------------------------------------------->
 
+# Problem 2
+
 ```{r}
 # create tidy dataset for longitudinal study
 longData <-
@@ -95,12 +97,58 @@ head(longData, 10) %>% knitr::kable()
 ```{r}
 # create a spaghetti chart of the data
 longData %>%
+  # instantiate plot
   ggplot(aes(x = week, y = value, group = subject_id)) +
+  # add lines
   geom_line() +
+  # create separate line charts for each arm
   facet_grid(~arm) +
+  # add meta-data
   labs(
       title = "Value over Time, by Arm"
     , x     = "Week"
     , y     = "Value"
   )
+```
+
+<!------------------------------------------------------------------------------
+Problem 3
+------------------------------------------------------------------------------->
+
+# Problem 3
+
+```{r}
+# set seed
+set.seed(10)
+
+# edit dataset to introduce missing values
+irisMissing <-
+  # call dataset
+  iris %>% 
+  # randomly select 20 entries from each column and assign them missing values
+  map_df(~replace(.x, sample(1:150, 20), NA)) %>%
+  # convert Species to a character vector
+  mutate(Species = as.character(Species))
+
+# write a function to address missing values
+replaceMissing <- function(v) {
+  # if input vector v is a numeric vector...
+  if (is.numeric(v)) {
+    # ... replace missing values with the mean of non-missing values
+    replace_na(v, mean(v, na.rm = TRUE))
+  # if input vector v is a character vector...
+  } else if (is.character(v)) {
+    # ... replace missing values with the string "virginica"
+    replace_na(v, "virginica")
+  }
+}
+
+# apply function to each column of edited dataset to fill in missing values
+irisCorrected <- map_df(irisMissing, replaceMissing)
+
+# output edited dataset
+tail(irisMissing, 10) %>% knitr::kable()
+
+# output corrected dataset
+tail(irisCorrected, 10) %>% knitr::kable()
 ```
