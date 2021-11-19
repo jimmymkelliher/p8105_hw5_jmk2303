@@ -218,6 +218,8 @@ Problem 2
 
 # Problem 2
 
+We next consider (ostensibly fictional) data from a longitudinal study that included a control arm and an experimental arm.
+
 ```{r}
 # create tidy dataset for longitudinal study
 longData <-
@@ -255,6 +257,8 @@ longData <-
 head(longData, 10) %>% knitr::kable()
 ```
 
+Each subject's weekly values were originally stored as a row vector in an isolated CSV file. We have tidied the data by iterating over each file and building a singular dataset wherein each observation in the dataset is uniquely identified by the arm type (control or experimental), the subject ID, and the week. It is now a simple task to visualize the trend of values over time by arm type.
+
 ```{r}
 # create a spaghetti chart of the data
 longData %>%
@@ -272,11 +276,15 @@ longData %>%
   )
 ```
 
+We see that values for the control arm group trended flat, if not slightly downward, over the course of the eight weeks of the trial. While values for the experimental arm group generally started in the same place as those of the control arm group, the average subject in the experimental arm group exhibited a linear increase of almost 4 units over the course of the trial. While not a formal statistical hypothesis test, this visualization gives us hope that the experimental drug was effective.
+
 <!------------------------------------------------------------------------------
 Problem 3
 ------------------------------------------------------------------------------->
 
 # Problem 3
+
+Finally, we practice with writing a function whose output is conditionally dependent on the class of the input. We build our function below.
 
 ```{r}
 # set seed
@@ -303,16 +311,28 @@ replaceMissing <- function(v) {
     replace_na(v, "virginica")
   }
 }
+```
 
-# apply function to each column of edited dataset to fill in missing values
-irisCorrected <- map_df(irisMissing, replaceMissing)
+In order to assess that our function is doing what it's intended to do, we first identify some of the problematic rows in our original dataset and output them below.
 
-# identify missing rows in edited dataset
+```{r}
+# identify rows in which at least one variable has a missing value
 missingRows <- sort(unique(unlist(map(irisMissing, ~which(is.na(.x))))))
 
 # output a few rows of interest in edited dataset
-head(  irisMissing[missingRows, ], 10) %>% knitr::kable()
+head(irisMissing[missingRows, ], 10) %>%
+  knitr::kable(caption = "**Problematic Sample**")
+```
+
+We conclude by applying our function iteratively to the columns of our problematic dataset, and we output the result below.
+
+```{r}
+# apply function to each column of edited dataset to fill in missing values
+irisCorrected <- map_df(irisMissing, replaceMissing)
 
 # output a few rows of interest in corrected dataset
-head(irisCorrected[missingRows, ], 10) %>% knitr::kable()
+head(irisCorrected[missingRows, ], 10) %>%
+  knitr::kable(caption = "**Corrected Sample**")
 ```
+
+Consider first the variable `Sepal.Length`. We see that the missing observation in the second row of our problematic sample above has been replaced with a value of `r mean(pull(irisMissing, Sepal.Length), na.rm = TRUE)` in the corrected sample. This is precisely the mean of the non-missing values of `Sepal.Length` in the original dataset, so our function seems to work properly for numerical vectors. Consider next the variable `Species`, the lone character variable in our data. Again, the missing value in the final row of our problematic sample has been replaced by the string "virginica" in our corrected sample. Thus, we have accomplished our task!
